@@ -1,3 +1,4 @@
+// server/server.js
 import "dotenv/config";
 import express from "express";
 import http from "http";
@@ -16,24 +17,20 @@ import { User } from "./models/User.js";
 import { requireAuth, signJWT } from "./auth.js";
 
 // ---- Cloudinary config ----
-if (!process.env.CLOUDINARY_CLOUD_NAME) {
-  console.error("[Cloudinary] Missing CLOUDINARY_* env vars");
-}
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "",
   api_key: process.env.CLOUDINARY_API_KEY || "",
-  api_secret: process.env.CLOUDINARY_API_SECRET || ""
+  api_secret: process.env.CLOUDINARY_API_SECRET || "",
 });
 
-// Store original file type in a generic "instavote" folder
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: async (_req, file) => ({
+  params: async () => ({
     folder: "instavote",
     resource_type: "auto",
     public_id: `poll_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-    format: undefined 
-  })
+    format: undefined,
+  }),
 });
 const upload = multer({ storage });
 
@@ -56,7 +53,6 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 // ---- Upload (Cloudinary) ----
 app.post("/api/upload", upload.single("file"), (req, res) => {
   try {
-    // multer-storage-cloudinary provides file.path = Cloudinary URL
     if (!req.file?.path) return res.status(400).json({ error: "Upload failed" });
     res.json({ url: req.file.path });
   } catch (e) {
@@ -99,18 +95,35 @@ app.get("/api/me/polls", async (req, res) => {
   res.json(polls);
 });
 
+// ---- PUBLIC POLLS LIST (NEW) ----
+// GET /api/polls/public?limit=20
+app.get("/api/polls/public", async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit || "20", 10), 100);
+  const polls = await Poll.find({ isPublic: true })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .select("code question options isActive createdAt");
+  res.json(polls);
+});
+
 // ---- POLLS ----
 app.post("/api/polls", async (req, res) => {
   try {
-    const { question, options, optionsImages } = req.body;
+    const { question, options, optionsImages, isPublic } = req.body;
+
     if (!question || !Array.isArray(options) || options.length < 2)
       return res.status(400).json({ error: "Question and at least 2 options required" });
 
     let code;
-    do { code = genCode(); } while (await Poll.findOne({ code }));
+    do {
+      code = genCode();
+    } while (await Poll.findOne({ code }));
 
-    const ownerId = req.user?.id || null;     // null for guest
+    const ownerId = req.user?.id || null; 
     const adminKey = genAdminKey();
+
+  
+    const visibility = ownerId ? Boolean(isPublic ?? true) : true;
 
     const poll = await Poll.create({
       code,
@@ -120,13 +133,14 @@ app.post("/api/polls", async (req, res) => {
         imageUrl: optionsImages?.[i] || "",
       })),
       isActive: true,
+      isPublic: visibility,
       ownerId,
       adminKey,
     });
 
     const base = (process.env.CLIENT_ORIGIN || "http://localhost:5173").replace(/\/$/, "");
     const publicUrl = `${base}/poll/${code}`;
-    const adminUrl  = `${base}/poll/${code}?admin=${adminKey}`;
+    const adminUrl = `${base}/poll/${code}?admin=${adminKey}`;
 
     res.status(201).json({ ...poll.toObject(), publicUrl, adminUrl, isOwner: true });
   } catch (e) {
@@ -137,25 +151,26 @@ app.post("/api/polls", async (req, res) => {
 app.get("/api/polls/:code", async (req, res) => {
   const { code } = req.params;
   const adminKey = req.query.admin || "";
-  const viewerId = req.user?.id || (req.headers["x-anon-id"] || "");
+  const viewerId = req.user?.id || req.headers["x-anon-id"] || "";
 
   const poll = await Poll.findOne({ code });
   if (!poll) return res.status(404).json({ error: "Not found" });
 
-  const isOwner = (req.user?.id && poll.ownerId?.toString() === req.user.id)
-               || (adminKey && adminKey === poll.adminKey);
+  const isOwner =
+    (req.user?.id && poll.ownerId?.toString() === req.user.id) ||
+    (adminKey && adminKey === poll.adminKey);
 
   const hasVoted = viewerId && poll.voters.includes(viewerId);
 
   const safe = poll.toObject();
-  if (!hasVoted) safe.options = safe.options.map(o => ({ ...o, votes: 0 }));
+  if (!hasVoted) safe.options = safe.options.map((o) => ({ ...o, votes: 0 }));
 
   res.json({ ...safe, isOwner, hasVoted });
 });
 
 app.post("/api/polls/:code/vote", async (req, res) => {
   const { index } = req.body;
-  const viewerId = req.user?.id || (req.headers["x-anon-id"] || "");
+  const viewerId = req.user?.id || req.headers["x-anon-id"] || "";
   const poll = await Poll.findOne({ code: req.params.code });
   if (!poll || !poll.isActive) return res.status(404).json({ error: "Poll closed/not found" });
 
@@ -180,7 +195,7 @@ app.post("/api/polls/:code/close", async (req, res) => {
   const poll = await Poll.findOne({ code });
   if (!poll) return res.status(404).json({ error: "Not found" });
 
-  const isOwner = (req.user?.id && poll.ownerId?.toString() === req.user.id);
+  const isOwner = req.user?.id && poll.ownerId?.toString() === req.user.id;
   const isAdminKey = admin && admin === poll.adminKey;
 
   if (!isOwner && !isAdminKey) return res.status(403).json({ error: "Not allowed" });
@@ -195,7 +210,7 @@ app.post("/api/polls/:code/close", async (req, res) => {
 // ---- start server + sockets ----
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: process.env.CLIENT_ORIGIN, methods: ["GET", "POST"] }
+  cors: { origin: process.env.CLIENT_ORIGIN, methods: ["GET", "POST"] },
 });
 
 io.on("connection", (socket) => {
@@ -204,7 +219,7 @@ io.on("connection", (socket) => {
     socket.emit("joined", code);
   });
 
-  // socket close kept for backward-compat; UI uses REST
+  // socket close kept for compatibility; UI prefers REST
   socket.on("poll:close", async ({ code, admin }) => {
     const poll = await Poll.findOne({ code });
     if (!poll) return;

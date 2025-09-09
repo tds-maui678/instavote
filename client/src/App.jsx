@@ -2,8 +2,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import CreatePoll from "./pages/CreatePoll";
 import Vote from "./pages/Vote";
-import Join from "./pages/Join";     
-import MyPolls from "./pages/MyPolls"; 
+import PublicPolls from "./pages/PublicPolls";
+
 
 export default function App() {
   return (
@@ -11,10 +11,10 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/create" element={<CreatePoll />} />
-        <Route path="/join" element={<Join />} />
+        <Route path="/public" element={<PublicPolls />} />
         <Route path="/poll/:code" element={<Vote />} />
-        <Route path="/polls" element={<MyPolls />} />
-        {/*  */}
+        <Route path="/join" element={<Join />} /> 
+        <Route path="/polls" element={<MyPolls />} /> 
         <Route path="*" element={<Home />} />
       </Routes>
     </BrowserRouter>

@@ -26,11 +26,11 @@ export default function Home() {
           </Link>
 
           <Link
-            to="/polls"
+            to="/public"
             className="block rounded-xl border p-5 hover:bg-gray-50 focus:outline-none focus:ring sm:col-span-2"
           >
-            <div className="text-lg font-medium">Open a poll</div>
-            <div className="text-sm text-gray-600">Open by link or browse yours</div>
+            <div className="text-lg font-medium">Check out public polls</div>
+            <div className="text-sm text-gray-600">Browse polls shared publicly</div>
           </Link>
         </div>
       </main>

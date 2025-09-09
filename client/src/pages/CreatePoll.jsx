@@ -4,13 +4,14 @@ import { useNavigate } from "react-router-dom";
 import NavBar from "../components/NavBar";
 import BackButton from "../components/BackButton";
 import { useToast } from "../ui/ToastProvider";
+import { auth } from "../lib/auth";
 
-// helper: upload a selected file to the backend (/api/upload) -> returns Cloudinary URL
+
 async function uploadFile(file) {
   const form = new FormData();
   form.append("file", file);
   const { data } = await api.post("/upload", form, {
-    headers: { "Content-Type": "multipart/form-data" }
+    headers: { "Content-Type": "multipart/form-data" },
   });
   return data.url; // Cloudinary URL
 }
@@ -19,12 +20,15 @@ export default function CreatePoll() {
   const nav = useNavigate();
   const toast = useToast();
 
+  const isLoggedIn = !!auth.token;
+
   // store each option as { text, imageUrl }
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState([
     { text: "", imageUrl: "" },
     { text: "", imageUrl: "" },
   ]);
+  const [isPublic, setIsPublic] = useState(!isLoggedIn); 
   const [loading, setLoading] = useState(false);
 
   function updateOption(i, key, value) {
@@ -46,7 +50,6 @@ export default function CreatePoll() {
     e.preventDefault();
     const q = question.trim();
 
-    // keep pairs aligned: filter out options that have no text
     const cleaned = options
       .map((o) => ({ text: o.text.trim(), imageUrl: (o.imageUrl || "").trim() }))
       .filter((o) => o.text.length > 0);
@@ -63,14 +66,14 @@ export default function CreatePoll() {
       const { data } = await api.post("/polls", {
         question: q,
         options: texts,
-        optionsImages: images, // backend expects this array (can be empty strings)
+        optionsImages: images,
+        isPublic, // respected for logged-in users; guests are forced public on server
       });
 
       toast.push("Poll created!", "success");
 
-      // Prefer the admin URL so the owner can manage/close the poll.
       if (data?.adminUrl) {
-        window.location.href = data.adminUrl; // contains ?admin=KEY
+        window.location.href = data.adminUrl; // admin controls
       } else {
         nav(`/poll/${data.code}`);
       }
@@ -100,6 +103,19 @@ export default function CreatePoll() {
               onChange={(e) => setQuestion(e.target.value)}
             />
 
+            {/* Visibility toggle */}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
+                disabled={!isLoggedIn} // guests are always public
+              />
+              <span>
+                Make this poll public {isLoggedIn ? "(can be discovered in Public Polls)" : "(guests are always public)"}
+              </span>
+            </label>
+
             <div className="space-y-4">
               {options.map((opt, i) => (
                 <div key={i} className="rounded border p-3 space-y-3">
@@ -122,17 +138,13 @@ export default function CreatePoll() {
                     )}
                   </div>
 
-                  {/* Image upload (Cloudinary via /api/upload) */}
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => onPickFile(i, e.target.files?.[0] || null)}
-                      className="block w-full text-sm"
-                    />
-                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => onPickFile(i, e.target.files?.[0] || null)}
+                    className="block w-full text-sm"
+                  />
 
-                  {/* Tiny preview if a URL is present */}
                   {opt.imageUrl ? (
                     <img
                       src={opt.imageUrl}
