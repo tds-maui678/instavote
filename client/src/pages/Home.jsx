@@ -30,7 +30,7 @@ export default function Home() {
             className="block rounded-xl border p-5 hover:bg-gray-50 focus:outline-none focus:ring sm:col-span-2"
           >
             <div className="text-lg font-medium">Open a poll</div>
-            <div className="text-sm text-gray-600">Browse or open by link</div>
+            <div className="text-sm text-gray-600">Open by link or browse yours</div>
           </Link>
         </div>
       </main>
